@@ -1,4 +1,5 @@
-const lunchData = require('./data.json');
+import { readFileSync } from 'fs';
+const lunchData = readFileSync('./data.json', 'utf-8');
 const significanceArg = process.argv[2];
 let significantOnly = true;
 
@@ -21,7 +22,7 @@ function relativeDiff(a, b) {
     return  100 * Math.abs( ( a - b ) / ( (a+b)/2 ) );
 }
 
-const stats = lunchData.map(data => {
+const stats = JSON.parse(lunchData).map(data => {
     const order_lines = JSON.parse(data['conf']);
 
     if (!Array.isArray(order_lines)) return;
@@ -59,6 +60,7 @@ const overallStats = {
 };
 
 const statOutput = Array.from(Array(10000).keys()).map(amount => {
+    const SIGNIFICANCE_THRESHOLD = 10;
     const cohortContracts = stats.filter(contract => contract.itemAmount === amount);
     if (cohortContracts.length === 0) return;
     const cohortDelivery = cohortContracts.reduce((acc, cur) => acc += cur.delivery, 0);
@@ -68,17 +70,19 @@ const statOutput = Array.from(Array(10000).keys()).map(amount => {
     const cohortMedian = median(cohortContracts.map(contract => contract.itemSum));
     const cohortCount = cohortContracts.length;
 
-    if (significantOnly) {
-        if (cohortCount < 4 || amount < 10) return;
-    } else {
-        if (!(cohortCount < 4 || amount < 10)) return;
-    }
-
     const estimateAverageInclDeliveryAverage = Math.round(amount * overallStats.averageItemDKK + overallStats.averageDeliveryDKK);
     const estimateMedianInclDeliveryMedian = Math.round(amount * overallStats.medianItemDKK + overallStats.medianDeliveryDKK);
 
     const cohortAverageInclDeliveryAverage = Math.round(cohortAverage + cohortDeliveryAverage);
     const cohortMedianIncludingDeliveryMedian = cohortMedian + cohortDeliveryMedian;
+    const deviationOverallAverageToCohortAverage = relativeDiff(estimateAverageInclDeliveryAverage, cohortAverageInclDeliveryAverage);
+    const deviationOverallMedianToCohortMedian = relativeDiff(estimateMedianInclDeliveryMedian, cohortMedianIncludingDeliveryMedian);
+
+    if (significantOnly) {
+        if (deviationOverallAverageToCohortAverage > SIGNIFICANCE_THRESHOLD || deviationOverallMedianToCohortMedian > SIGNIFICANCE_THRESHOLD) return;
+    } else {
+        if (deviationOverallAverageToCohortAverage < SIGNIFICANCE_THRESHOLD || deviationOverallMedianToCohortMedian < SIGNIFICANCE_THRESHOLD) return;
+    }
 
     return {
         pax: amount,
@@ -88,8 +92,8 @@ const statOutput = Array.from(Array(10000).keys()).map(amount => {
         'cohort avg': cohortAverageInclDeliveryAverage ,
         'cohort median': cohortMedianIncludingDeliveryMedian,
         'cohort count': cohortCount,
-        'devi overall avg <> cohort avg (%)': Number(relativeDiff(estimateAverageInclDeliveryAverage, cohortAverageInclDeliveryAverage).toFixed(2)),
-        'devi overall median <> cohort median (%)': Number(relativeDiff(estimateMedianInclDeliveryMedian, cohortMedianIncludingDeliveryMedian).toFixed(2)),
+        'devi overall avg <> cohort avg (%)': Number(deviationOverallAverageToCohortAverage.toFixed(2)),
+        'devi overall median <> cohort median (%)': Number(deviationOverallMedianToCohortMedian.toFixed(2)),
     }
 })
 
